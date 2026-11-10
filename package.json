@@ -1,0 +1,45 @@
+{
+  "name": "shift",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:media": "node --conditions=react-server --import tsx --test src/lib/cloudinary/config.test.ts src/server/services/media/media-permissions.test.ts src/server/services/media/media.service.test.ts",
+    "test:catalog": "node --conditions=react-server --import tsx --test src/server/services/catalog-import.test.ts src/server/services/catalog-query.test.ts src/server/services/catalog-publication.test.ts",
+    "test:admin-catalog": "node --conditions=react-server --import tsx --test src/server/services/admin-catalog-api.test.ts src/lib/auth-navigation.test.ts",
+    "catalog:import": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/catalog-import.ts"
+  },
+  "dependencies": {
+    "@apollo/server": "^5.5.1",
+    "@as-integrations/next": "^4.1.0",
+    "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.11.0",
+    "graphql": "^16.15.0",
+    "gsap": "^3.15.1",
+    "mongoose": "^9.12.0",
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.5",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "typescript-eslint": "8.72.0",
+    "@typescript-eslint/eslint-plugin": "8.72.0",
+    "@typescript-eslint/parser": "8.72.0"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "manufacturers": [
+    {
+      "name": "Koenigsegg",
+      "slug": "koenigsegg",
+      "countryOfOrigin": "Sweden",
+      "description": "Koenigsegg is an automotive technology company that builds bespoke hypercars.",
+      "manufacturerType": "independent automotive manufacturer",
+      "officialWebsite": "https://www.koenigsegg.com/",
+      "categories": ["hypercar"],
+      "status": "active",
+      "verificationStatus": "verified",
+      "verifiedAt": "2026-11-10T07:33:55.824+01:00",
+      "verifiedBy": "SHIFT catalog research",
+      "dataSources": [
+        {
+          "title": "About us",
+          "publisher": "Koenigsegg",
+          "url": "https://www.koenigsegg.com/about",
+          "accessedAt": "2026-11-10T07:33:55.824+01:00"
+        }
+      ],
+      "source": "admin-curated"
+    }
+  ],
+  "vehicles": [
+    {
+      "manufacturerSlug": "koenigsegg",
+      "modelName": "Gemera",
+      "slug": "koenigsegg-gemera",
+      "source": "admin-curated",
+      "dataSources": [
+        {
+          "title": "Koenigsegg official homepage",
+          "publisher": "Koenigsegg",
+          "url": "https://www.koenigsegg.com/",
+          "accessedAt": "2026-11-10T07:33:55.824+01:00"
+        }
+      ],
+      "verificationStatus": "verified",
+      "verifiedAt": "2026-11-10T07:33:55.824+01:00",
+      "verifiedBy": "SHIFT catalog research"
+    },
+    {
+      "manufacturerSlug": "koenigsegg",
+      "modelName": "CC850",
+      "slug": "koenigsegg-cc850",
+      "source": "admin-curated",
+      "dataSources": [
+        {
+          "title": "Koenigsegg official homepage",
+          "publisher": "Koenigsegg",
+          "url": "https://www.koenigsegg.com/",
+          "accessedAt": "2026-11-10T07:33:55.824+01:00"
+        }
+      ],
+      "verificationStatus": "verified",
+      "verifiedAt": "2026-11-10T07:33:55.824+01:00",
+      "verifiedBy": "SHIFT catalog research"
+    }
+  ]
+}
