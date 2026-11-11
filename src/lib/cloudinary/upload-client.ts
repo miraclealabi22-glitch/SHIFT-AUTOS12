@@ -23,7 +23,13 @@ export type UploadedMediaAsset = {
 };
 
 async function readResponse<T>(response: Response): Promise<T> {
-  const body: unknown = await response.json();
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("Media request returned an invalid response.");
+  }
+
   if (!response.ok) {
     const message = typeof body === "object"
       && body !== null

@@ -125,7 +125,7 @@ export const vehiclesQuery = /* GraphQL */ `
         manufacturerName
         modelName
         description
-        images { url alt source caption isPrimary sortOrder license usage verificationStatus }
+        images { url alt source caption isPrimary sortOrder license usage verificationStatus mediaCategory imageView generationName variantName isPrimaryInterior }
         category
         historicalBackground
         designEngineering
@@ -179,7 +179,7 @@ export const vehicleBySlugQuery = /* GraphQL */ `
       manufacturerName
       modelName
       description
-      images { url alt source caption isPrimary sortOrder license usage verificationStatus }
+      images { url alt source caption isPrimary sortOrder license usage verificationStatus mediaCategory imageView generationName variantName isPrimaryInterior }
       category
       historicalBackground
       designEngineering
@@ -229,6 +229,7 @@ export type ManufacturerPageVariables = {
     rankingCategory?: string;
     filter?: {
       search?: string;
+      startsWith?: string;
       category?: string;
       countryOfOrigin?: string;
       status?: "ACTIVE" | "DISCONTINUED";

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import SiteHeader from "@/components/site/site-header";
-import { getManufacturers } from "@/lib/catalog/catalog";
+import { getManufacturerCategoryCounts } from "@/lib/catalog/catalog";
 import type { ManufacturerCategory } from "@/lib/catalog/types";
 
 export const instant = false;
@@ -24,8 +24,9 @@ const categoryLabels: Record<ManufacturerCategory, string> = {
 };
 
 export default async function CategoriesPage() {
-  const result = await getManufacturers();
-  const categories = [...new Set(result.items.flatMap((manufacturer) => manufacturer.categories))];
+  const result = await getManufacturerCategoryCounts();
+  const categories = Object.keys(result.counts) as ManufacturerCategory[];
+  const availableCategories = categories.filter((category) => (result.counts[category] ?? 0) > 0);
 
   return (
     <main id="main-content" className="catalog-page">
@@ -39,8 +40,8 @@ export default async function CategoriesPage() {
         {!result.available && (
           <p className="catalog-notice" role="status">The manufacturer catalogue is temporarily unavailable.</p>
         )}
-        {categories.length ? categories.map((category, index) => {
-          const count = result.items.filter((manufacturer) => manufacturer.categories.includes(category)).length;
+        {availableCategories.length ? availableCategories.map((category, index) => {
+          const count = result.counts[category] ?? 0;
           return (
             <Link href={`/discover/brands?category=${category}`} className="category-index__item" key={category}>
               <span>{String(index + 1).padStart(2, "0")}</span>

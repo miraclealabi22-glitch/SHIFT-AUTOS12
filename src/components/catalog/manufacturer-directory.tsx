@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Manufacturer, ManufacturerCategory } from "@/lib/catalog/types";
+import { manufacturersQuery, type ManufacturerPageVariables } from "@/lib/catalog/graphql-queries";
+import type { ManufacturerDirectoryInput } from "@/lib/catalog/catalog";
+import { normalizeManufacturer } from "@/lib/catalog/normalize";
 import ManufacturerLogo from "@/components/catalog/manufacturer-logo";
 
 const categoryLabels: Record<ManufacturerCategory, string> = {
@@ -30,6 +33,37 @@ const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const pageSize = 48;
 
 type SortMode = "overall" | "category" | "alphabetical";
+
+type ManufacturerPage = {
+  nodes: Manufacturer[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  totalCount: number;
+};
+
+async function fetchManufacturerPage(
+  input: ManufacturerDirectoryInput,
+  signal?: AbortSignal,
+): Promise<ManufacturerPage> {
+  const response = await fetch("/api/graphql", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query: manufacturersQuery, variables: { input } satisfies ManufacturerPageVariables }),
+    cache: "no-store",
+    signal,
+  });
+  const result = await response.json() as {
+    data?: { manufacturers?: ManufacturerPage };
+    errors?: { message: string }[];
+  };
+  if (!response.ok || result.errors?.length || !result.data?.manufacturers) {
+    throw new Error(result.errors?.map((error) => error.message).join("; ") || "Manufacturer records could not be loaded.");
+  }
+  return result.data.manufacturers;
+}
+
+function categoryEnum(category: ManufacturerCategory): string {
+  return category.toUpperCase().replaceAll("-", "_");
+}
 
 function isVerifiedRanking(manufacturer: Manufacturer) {
   const criteria = manufacturer.rankingCriteria;
@@ -64,12 +98,16 @@ function getRank(manufacturer: Manufacturer, sortMode: SortMode, rankingCategory
 type ManufacturerDirectoryProps = {
   manufacturers: Manufacturer[];
   available: boolean;
+  pageInfo: ManufacturerPage["pageInfo"];
+  totalCount: number;
   initialCategory?: ManufacturerCategory;
 };
 
 export default function ManufacturerDirectory({
   manufacturers,
   available,
+  pageInfo: initialPageInfo,
+  totalCount: initialTotalCount,
   initialCategory,
 }: ManufacturerDirectoryProps) {
   const [query, setQuery] = useState("");
@@ -78,55 +116,118 @@ export default function ManufacturerDirectory({
   const [featuredOnly, setFeaturedOnly] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("overall");
   const [rankingCategory, setRankingCategory] = useState<ManufacturerCategory>("hypercar");
-  const [country, setCountry] = useState("all");
-  const [status, setStatus] = useState<"all" | "active" | "discontinued">("all");
-  const [page, setPage] = useState(0);
-  const hasFeatured = manufacturers.some((manufacturer) => manufacturer.featured);
-  const countries = [...new Set(manufacturers.flatMap((manufacturer) => manufacturer.countryOfOrigin ? [manufacturer.countryOfOrigin] : []))].sort();
-  const rankedCount = manufacturers.filter((manufacturer) => getRank(manufacturer, sortMode, rankingCategory) !== undefined).length;
-  const categoryChoices = categories.filter((item) => manufacturers.some((manufacturer) => manufacturer.categories.includes(item)));
+  const [country, setCountry] = useState("");
+  const [status, setStatus] = useState<"all" | "ACTIVE" | "DISCONTINUED">("all");
+  const [items, setItems] = useState(manufacturers);
+  const [endCursor, setEndCursor] = useState(initialPageInfo.endCursor);
+  const [hasNextPage, setHasNextPage] = useState(initialPageInfo.hasNextPage);
+  const [totalCount, setTotalCount] = useState(initialTotalCount);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [catalogueAvailable, setCatalogueAvailable] = useState(available);
+  const lastLoadedInput = useRef("");
+  const loadMoreController = useRef<AbortController | null>(null);
+  const categoryChoices = categories;
+  const rankedCount = items.filter((manufacturer) => getRank(manufacturer, sortMode, rankingCategory) !== undefined).length;
+  const hasActiveFilters = Boolean(
+    query.trim()
+    || category !== "all"
+    || letter
+    || country.trim()
+    || status !== "all"
+    || featuredOnly,
+  );
 
-  const filtered = useMemo(() => manufacturers
-    .filter((manufacturer) => {
-      const matchesQuery = manufacturer.name.toLowerCase().includes(query.trim().toLowerCase());
-      const matchesCategory = category === "all" || manufacturer.categories.includes(category);
-      const matchesLetter = !letter || manufacturer.name.toUpperCase().startsWith(letter);
-      const matchesFeatured = !featuredOnly || manufacturer.featured === true;
-      const matchesCountry = country === "all" || manufacturer.countryOfOrigin === country;
-      const matchesStatus = status === "all" || manufacturer.status === status;
-      return matchesQuery && matchesCategory && matchesLetter && matchesFeatured && matchesCountry && matchesStatus;
-    })
-    .sort((a, b) => {
-      if (sortMode === "alphabetical") return a.name.localeCompare(b.name);
-      const rankA = getRank(a, sortMode, rankingCategory);
-      const rankB = getRank(b, sortMode, rankingCategory);
-      if (rankA !== undefined && rankB !== undefined && rankA !== rankB) return rankA - rankB;
-      if (rankA !== undefined && rankB === undefined) return -1;
-      if (rankA === undefined && rankB !== undefined) return 1;
-      if (rankA !== undefined && rankB !== undefined
-        && a.rankingScore !== undefined && b.rankingScore !== undefined
-        && a.rankingScore !== b.rankingScore) {
-        return b.rankingScore - a.rankingScore;
+  const pageInput = useMemo<ManufacturerDirectoryInput>(() => ({
+    first: pageSize,
+    sort: sortMode === "category"
+      ? "CATEGORY_RANK"
+      : sortMode === "alphabetical"
+        ? "NAME_ASC"
+        : "OVERALL_RANK",
+    rankingCategory: categoryEnum(rankingCategory),
+    filter: {
+      ...(query.trim() ? { search: query.trim() } : {}),
+      ...(category !== "all" ? { category: categoryEnum(category) } : {}),
+      ...(letter ? { startsWith: letter } : {}),
+      ...(country.trim() ? { countryOfOrigin: country.trim() } : {}),
+      ...(status !== "all" ? { status } : {}),
+      ...(featuredOnly ? { featured: true } : {}),
+    },
+  }), [sortMode, rankingCategory, query, category, letter, country, status, featuredOnly]);
+
+  useEffect(() => {
+    const requestKey = JSON.stringify(pageInput);
+    if (!lastLoadedInput.current) {
+      lastLoadedInput.current = requestKey;
+      return;
+    }
+    if (lastLoadedInput.current === requestKey) return;
+    lastLoadedInput.current = requestKey;
+    loadMoreController.current?.abort();
+    setLoadingMore(false);
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setLoading(true);
+      setLoadError("");
+      void fetchManufacturerPage(pageInput, controller.signal)
+        .then((result) => {
+          setItems(result.nodes.map(normalizeManufacturer));
+          setEndCursor(result.pageInfo.endCursor);
+          setHasNextPage(result.pageInfo.hasNextPage);
+          setTotalCount(result.totalCount);
+          setCatalogueAvailable(true);
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setLoadError(error instanceof Error ? error.message : "Manufacturer records could not be loaded.");
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 250);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [pageInput]);
+
+  async function loadMore() {
+    if (!endCursor || loadingMore) return;
+    const controller = new AbortController();
+    loadMoreController.current = controller;
+    setLoadingMore(true);
+    setLoadError("");
+    try {
+      const result = await fetchManufacturerPage({ ...pageInput, after: endCursor }, controller.signal);
+      if (controller.signal.aborted) return;
+      setItems((current) => [...current, ...result.nodes.map(normalizeManufacturer)]);
+      setEndCursor(result.pageInfo.endCursor);
+      setHasNextPage(result.pageInfo.hasNextPage);
+      setTotalCount(result.totalCount);
+      setCatalogueAvailable(true);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setLoadError(error instanceof Error ? error.message : "More manufacturer records could not be loaded.");
       }
-      return a.name.localeCompare(b.name);
-    }), [manufacturers, query, category, letter, featuredOnly, country, status, sortMode, rankingCategory]);
-
-  const visible = filtered.slice(page * pageSize, (page + 1) * pageSize);
-
-  function resetPage(action: () => void) {
-    action();
-    setPage(0);
+    } finally {
+      if (!controller.signal.aborted) setLoadingMore(false);
+    }
   }
 
   return (
     <>
-      {!available && (
+      {!catalogueAvailable && (
         <div className="catalog-state" role="status">
           <p className="catalog-eyebrow">CATALOGUE UNAVAILABLE</p>
           <h2>Manufacturer records could not be loaded.</h2>
           <p>The manufacturer service is temporarily unavailable. Please try again later.</p>
         </div>
       )}
+      {loadError && <p className="catalog-notice" role="alert">{loadError}</p>}
 
       <div className="directory-controls">
         <label className="directory-search">
@@ -134,7 +235,7 @@ export default function ManufacturerDirectory({
           <input
             type="search"
             value={query}
-            onChange={(event) => resetPage(() => setQuery(event.currentTarget.value))}
+            onChange={(event) => setQuery(event.currentTarget.value)}
             placeholder="Search by name"
           />
         </label>
@@ -143,7 +244,7 @@ export default function ManufacturerDirectory({
             <span>Sort directory</span>
             <select
               value={sortMode}
-              onChange={(event) => resetPage(() => setSortMode(event.currentTarget.value as SortMode))}
+              onChange={(event) => setSortMode(event.currentTarget.value as SortMode)}
             >
               <option value="overall">Overall SHIFT ranking</option>
               <option value="category">Category ranking</option>
@@ -155,7 +256,7 @@ export default function ManufacturerDirectory({
               <span>Ranking category</span>
               <select
                 value={rankingCategory}
-                onChange={(event) => resetPage(() => setRankingCategory(event.currentTarget.value as ManufacturerCategory))}
+                onChange={(event) => setRankingCategory(event.currentTarget.value as ManufacturerCategory)}
               >
                 {categoryChoices.map((item) => <option key={item} value={item}>{categoryLabels[item]}</option>)}
               </select>
@@ -163,56 +264,50 @@ export default function ManufacturerDirectory({
           )}
           <label>
             <span>Country</span>
-            <select value={country} disabled={!countries.length} onChange={(event) => resetPage(() => setCountry(event.currentTarget.value))}>
-              <option value="all">{countries.length ? "All countries" : "Country data unavailable"}</option>
-              {countries.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
+            <input type="search" value={country} onChange={(event) => setCountry(event.currentTarget.value)} placeholder="Filter by country" />
           </label>
           <label>
             <span>Marque status</span>
             <select
               value={status}
-              disabled={!manufacturers.some((manufacturer) => manufacturer.status)}
-              onChange={(event) => resetPage(() => setStatus(event.currentTarget.value as typeof status))}
+              onChange={(event) => setStatus(event.currentTarget.value as typeof status)}
             >
-              <option value="all">{manufacturers.some((manufacturer) => manufacturer.status) ? "All statuses" : "Status data unavailable"}</option>
-              {manufacturers.some((manufacturer) => manufacturer.status === "active") && <option value="active">Active</option>}
-              {manufacturers.some((manufacturer) => manufacturer.status === "discontinued") && <option value="discontinued">Discontinued</option>}
+              <option value="all">All statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="DISCONTINUED">Discontinued</option>
             </select>
           </label>
         </div>
         <div className="directory-categories" aria-label="Filter by manufacturer category">
-          <button type="button" aria-pressed={category === "all"} onClick={() => resetPage(() => setCategory("all"))}>All</button>
+          <button type="button" aria-pressed={category === "all"} onClick={() => setCategory("all")}>All</button>
           {categoryChoices.map((item) => (
             <button
               key={item}
               type="button"
               aria-pressed={category === item}
-              onClick={() => resetPage(() => setCategory(item))}
+              onClick={() => setCategory(item)}
             >
               {categoryLabels[item]}
             </button>
           ))}
-          {hasFeatured && (
-            <button
-              type="button"
-              aria-pressed={featuredOnly}
-              onClick={() => resetPage(() => setFeaturedOnly((current) => !current))}
-            >
-              Featured
-            </button>
-          )}
+          <button
+            type="button"
+            aria-pressed={featuredOnly}
+            onClick={() => setFeaturedOnly((current) => !current)}
+          >
+            Featured
+          </button>
         </div>
       </div>
 
       <nav className="directory-alphabet" aria-label="Filter manufacturers alphabetically">
-        <button type="button" aria-pressed={!letter} onClick={() => resetPage(() => setLetter(null))}>All</button>
+        <button type="button" aria-pressed={!letter} onClick={() => setLetter(null)}>All</button>
         {alphabet.map((item) => (
           <button
             key={item}
             type="button"
             aria-pressed={letter === item}
-            onClick={() => resetPage(() => setLetter(item))}
+            onClick={() => setLetter(item)}
           >
             {item}
           </button>
@@ -220,19 +315,21 @@ export default function ManufacturerDirectory({
       </nav>
 
       <div className="directory-result-line" aria-live="polite">
-        <span>{filtered.length} {filtered.length === 1 ? "manufacturer" : "manufacturers"}</span>
-        <span>{rankedCount} verified {sortMode === "category" ? `${categoryLabels[rankingCategory]} ` : ""}SHIFT {rankedCount === 1 ? "rank" : "ranks"}</span>
+        <span>{totalCount} {totalCount === 1 ? "manufacturer" : "manufacturers"}</span>
+        <span>{rankedCount} verified {sortMode === "category" ? `${categoryLabels[rankingCategory]} ` : ""}SHIFT {rankedCount === 1 ? "rank" : "ranks"} loaded</span>
         {category !== "all" && <span>{categoryLabels[category]}</span>}
         {letter && <span>Starting with {letter}</span>}
       </div>
 
-      {visible.length > 0 ? (
+      {loading && items.length === 0 ? (
+        <div className="catalog-state" role="status"><p className="catalog-eyebrow">LOADING DIRECTORY</p><h2>Loading manufacturer records…</h2></div>
+      ) : items.length > 0 ? (
         <>
           <p className="ranking-methodology">
             SHIFT editorial ranking · prestige, performance, exclusivity, innovation, heritage, and industry influence are equally weighted. Each criterion is assessed from 0–5 using cited evidence; the mean is normalized to 100. Ranks are SHIFT editorial judgments, not official industry awards. Unresearched manufacturers remain unranked.
           </p>
           <div className="manufacturer-grid">
-          {visible.map((manufacturer) => (
+          {items.map((manufacturer) => (
             <article className="manufacturer-tile" key={manufacturer.id}>
               <Link
                 className="manufacturer-tile__link"
@@ -301,23 +398,21 @@ export default function ManufacturerDirectory({
         </>
       ) : (
         <div className="catalog-empty">
-          <h2>{manufacturers.length ? "No manufacturers match these filters." : "No manufacturer records are available yet."}</h2>
-          <p>{manufacturers.length
+          <h2>{hasActiveFilters ? "No manufacturers match these filters." : "No manufacturer records are available yet."}</h2>
+          <p>{hasActiveFilters
             ? "Try another name, letter, or category."
             : "Manufacturer cards will appear when production records are added to the SHIFT catalogue."}</p>
         </div>
       )}
 
-      {filtered.length > pageSize && (
+      {hasNextPage && (
         <div className="directory-pagination">
-          <button type="button" disabled={page === 0} onClick={() => setPage((current) => current - 1)}>Previous</button>
-          <span>{page + 1} / {Math.ceil(filtered.length / pageSize)}</span>
           <button
             type="button"
-            disabled={(page + 1) * pageSize >= filtered.length}
-            onClick={() => setPage((current) => current + 1)}
+            disabled={loadingMore}
+            onClick={() => void loadMore()}
           >
-            Next
+            {loadingMore ? "Loading…" : `Load more (${items.length} of ${totalCount})`}
           </button>
         </div>
       )}

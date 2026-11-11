@@ -2,6 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ChangeEvent } from "react";
+import { uploadMediaFile } from "@/lib/cloudinary/upload-client";
+import {
+  VEHICLE_IMAGE_VIEWS_BY_CATEGORY,
+  VEHICLE_MEDIA_CATEGORIES,
+  type VehicleImageView,
+  type VehicleMediaCategory,
+} from "@/lib/catalog/media-classification";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -15,17 +22,23 @@ type CatalogImage = {
   license?: string;
   usage?: string;
   isPrimary?: boolean;
+  isPrimaryInterior?: boolean;
   sortOrder?: number;
+  mediaCategory?: VehicleMediaCategory;
+  imageView?: VehicleImageView;
+  generationName?: string;
+  variantName?: string;
 };
 type Specification = { label: string; value: string; source: string };
 type MediaAssetOption = { id: string; publicId: string; url: string; createdAt: string };
 type Variant = { name: string; edition: string; specificationsText: string };
 type Generation = {
+  id?: string;
   name: string;
   productionStartYear?: number;
   productionEndYear?: number;
   description: string;
-  variants: Variant[];
+  variants: (Variant & { id?: string })[];
 };
 type VehicleForm = {
   id?: string;
@@ -94,6 +107,25 @@ function toYear(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
+function toMediaInput(image: CatalogImage): CatalogImage {
+  return {
+    mediaAssetId: image.mediaAssetId,
+    publicId: image.publicId,
+    url: image.url,
+    alt: image.alt,
+    caption: image.caption,
+    license: image.license,
+    usage: image.usage,
+    isPrimary: image.isPrimary,
+    isPrimaryInterior: image.isPrimaryInterior,
+    sortOrder: image.sortOrder,
+    mediaCategory: image.mediaCategory,
+    imageView: image.imageView,
+    generationName: image.generationName,
+    variantName: image.variantName,
+  };
+}
+
 function parseVariantSpecifications(text: string): Specification[] {
   if (!text.trim()) return [];
   const parsed: unknown = JSON.parse(text);
@@ -102,17 +134,11 @@ function parseVariantSpecifications(text: string): Specification[] {
 }
 
 async function uploadImage(file: File, category: "manufacturers" | "vehicles", license: string): Promise<CatalogImage> {
-  const form = new FormData();
-  form.set("file", file);
-  form.set("category", category);
-  form.set("resourceType", "image");
-  const response = await fetch("/api/media", { method: "POST", body: form });
-  const result = await response.json() as { asset?: { id: string; publicId: string; secureUrl: string }; error?: string };
-  if (!response.ok || !result.asset) throw new Error(result.error || "Image upload failed.");
+  const asset = await uploadMediaFile(file, category);
   return {
-    mediaAssetId: result.asset.id,
-    publicId: result.asset.publicId,
-    url: result.asset.secureUrl,
+    mediaAssetId: asset.id,
+    publicId: asset.publicId,
+    url: asset.secureUrl,
     license,
     usage: "SHIFT catalogue display; rights declared by authorized administrator",
     isPrimary: false,
@@ -355,8 +381,8 @@ export function ManufacturerAdminEditor({ manufacturerId }: { manufacturerId: st
         history: manufacturer.history || undefined,
         categories: manufacturer.categories,
         featured: manufacturer.featured,
-        logo: manufacturer.logo ?? null,
-        coverImage: manufacturer.coverImage ?? null,
+        logo: manufacturer.logo ? toMediaInput(manufacturer.logo) : null,
+        coverImage: manufacturer.coverImage ? toMediaInput(manufacturer.coverImage) : null,
         seo: { title: manufacturer.seoTitle || undefined, description: manufacturer.seoDescription || undefined },
         publicationStatus,
       };
@@ -403,11 +429,13 @@ export function ManufacturerAdminEditor({ manufacturerId }: { manufacturerId: st
         images: Array.isArray(data.images) ? data.images as CatalogImage[] : [],
         specifications: Array.isArray(data.specifications) ? data.specifications as Specification[] : [],
         generations: generations.map((generation) => ({
+          id: String(generation._id ?? generation.id ?? ""),
           name: String(generation.name ?? ""),
           productionStartYear: toYear(generation.productionStartYear),
           productionEndYear: toYear(generation.productionEndYear),
           description: String(generation.description ?? ""),
           variants: (Array.isArray(generation.variants) ? generation.variants as Array<Record<string, unknown>> : []).map((variant) => ({
+            id: String(variant._id ?? variant.id ?? ""),
             name: String(variant.name ?? ""),
             edition: String(variant.edition ?? ""),
             specificationsText: JSON.stringify(variant.specifications ?? [], null, 2),
@@ -430,7 +458,10 @@ export function ManufacturerAdminEditor({ manufacturerId }: { manufacturerId: st
     setNotice("");
     try {
       const generations = vehicleForm.generations.map((generation) => ({
-        ...generation,
+        name: generation.name,
+        productionStartYear: generation.productionStartYear,
+        productionEndYear: generation.productionEndYear,
+        description: generation.description,
         variants: generation.variants.map((variant) => ({
           name: variant.name,
           edition: variant.edition || undefined,
@@ -449,7 +480,7 @@ export function ManufacturerAdminEditor({ manufacturerId }: { manufacturerId: st
         status: vehicleForm.status || undefined,
         featured: vehicleForm.featured,
         publicationStatus,
-        images: vehicleForm.images,
+        images: vehicleForm.images.map(toMediaInput),
         specifications: vehicleForm.specifications.filter((item) => item.label && item.value && item.source),
         generations,
         seo: { title: vehicleForm.seoTitle || undefined, description: vehicleForm.seoDescription || undefined },
@@ -705,7 +736,11 @@ export function ManufacturerAdminEditor({ manufacturerId }: { manufacturerId: st
                 <aside>
                   <h3 className="mb-4 text-[10px] uppercase tracking-[0.19em] text-[#bbb]">Vehicle gallery</h3>
                   <label className="mb-3 block text-[9px] leading-5 text-[#888]">Upload multiple photos one at a time; set one primary. Existing files are retained unless removed.</label>
-                  <VehicleGallery images={vehicleForm.images} onChange={(images) => setVehicleForm({ ...vehicleForm, images })} />
+                  <VehicleGallery
+                    images={vehicleForm.images}
+                    generations={vehicleForm.generations}
+                    onChange={(images) => setVehicleForm({ ...vehicleForm, images })}
+                  />
                 </aside>
               </div>
               <footer className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-[#303030] bg-[#0b0b0b] px-5 py-4 sm:px-8">
@@ -729,13 +764,26 @@ export function ManufacturerAdminEditor({ manufacturerId }: { manufacturerId: st
   );
 }
 
-function VehicleGallery({ images, onChange }: { images: CatalogImage[]; onChange: (images: CatalogImage[]) => void }) {
+function VehicleGallery({
+  images,
+  generations,
+  onChange,
+}: {
+  images: CatalogImage[];
+  generations: Generation[];
+  onChange: (images: CatalogImage[]) => void;
+}) {
   const [license, setLicense] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState("");
   const [error, setError] = useState("");
   const [assets, setAssets] = useState<MediaAssetOption[]>([]);
   const [showAssets, setShowAssets] = useState(false);
+  const [uploadCategory, setUploadCategory] = useState<VehicleMediaCategory | "">("");
+  const [uploadView, setUploadView] = useState<VehicleImageView | "">("");
+  const [generationName, setGenerationName] = useState("");
+  const [variantName, setVariantName] = useState("");
 
   async function loadAssets() {
     setError("");
@@ -751,28 +799,64 @@ function VehicleGallery({ images, onChange }: { images: CatalogImage[]; onChange
   }
 
   async function addFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) return;
     if (!confirmed || !license.trim()) {
       setError("Confirm image rights and enter a license before uploading.");
+      event.target.value = "";
+      return;
+    }
+    if (!uploadCategory || !uploadView) {
+      setError("Choose the media category and image view before uploading.");
       event.target.value = "";
       return;
     }
     setBusy(true);
     setError("");
     try {
-      const image = await uploadImage(file, "vehicles", license.trim());
-      image.alt = file.name.replace(/\.[^.]+$/, "");
-      image.caption = image.alt;
-      image.sortOrder = images.length;
-      image.isPrimary = images.length === 0;
-      onChange([...images, image]);
+      let nextImages = [...images];
+      for (const [index, file] of files.entries()) {
+        setUploadingFile(`Uploading ${index + 1} of ${files.length}`);
+        const image = await uploadImage(file, "vehicles", license.trim());
+        image.alt = file.name.replace(/\.[^.]+$/, "");
+        image.caption = image.alt;
+        image.sortOrder = nextImages.length;
+        image.mediaCategory = uploadCategory;
+        image.imageView = uploadView;
+        image.generationName = generationName || undefined;
+        image.variantName = variantName || undefined;
+        image.isPrimary = uploadCategory === "exterior"
+          && !nextImages.some((item) => item.mediaCategory === "exterior" && item.isPrimary);
+        image.isPrimaryInterior = uploadCategory === "interior"
+          && !nextImages.some((item) => item.mediaCategory === "interior" && item.isPrimaryInterior);
+        nextImages = [...nextImages, image];
+        onChange(nextImages);
+      }
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Image upload failed.");
     } finally {
       setBusy(false);
+      setUploadingFile("");
       event.target.value = "";
     }
+  }
+
+  function updateImage(index: number, patch: Partial<CatalogImage>) {
+    onChange(images.map((image, imageIndex) => imageIndex === index
+      ? { ...image, ...patch }
+      : image));
+  }
+
+  function setPrimary(index: number, category: VehicleMediaCategory) {
+    onChange(images.map((image, imageIndex) => ({
+      ...image,
+      ...(category === "exterior"
+        ? { isPrimary: imageIndex === index && image.mediaCategory === "exterior" }
+        : {}),
+      ...(category === "interior"
+        ? { isPrimaryInterior: imageIndex === index && image.mediaCategory === "interior" }
+        : {}),
+    })));
   }
 
   function move(index: number, direction: -1 | 1) {
@@ -785,29 +869,85 @@ function VehicleGallery({ images, onChange }: { images: CatalogImage[]; onChange
 
   return (
     <div className="space-y-3">
-      {images.map((image, index) => (
-        <div key={`${image.mediaAssetId ?? image.url}-${index}`} className={`border p-3 ${image.isPrimary ? "border-[#9b9b9b] bg-[#111]" : "border-[#303030] bg-[#080808]"}`}>
+      {images.map((image, index) => {
+        const category = image.mediaCategory;
+        const views = category ? VEHICLE_IMAGE_VIEWS_BY_CATEGORY[category] : [];
+        const matchingGenerations = generations.filter((generation) => generation.name);
+        const matchingGeneration = matchingGenerations.find((generation) => generation.name === image.generationName);
+        return (
+        <div key={`${image.mediaAssetId ?? image.url}-${index}`} className={`border p-3 ${image.isPrimary || image.isPrimaryInterior ? "border-[#9b9b9b] bg-[#111]" : "border-[#303030] bg-[#080808]"}`}>
           <div className="grid h-36 place-items-center overflow-hidden bg-black">
             {image.url && <img src={image.url} alt={image.alt || ""} className="h-full w-full object-contain" />}
           </div>
           <input value={image.caption ?? ""} onChange={(event) => onChange(images.map((item, i) => i === index ? { ...item, caption: event.target.value, alt: event.target.value || item.alt } : item))} placeholder="Caption" aria-label="Image caption" className={`${inputClass} mt-3`} />
+          <label className={`${labelClass} mt-3`}>Media category
+            <select value={category ?? ""} onChange={(event) => {
+              const nextCategory = event.target.value as VehicleMediaCategory;
+              const nextView = VEHICLE_IMAGE_VIEWS_BY_CATEGORY[nextCategory][0];
+              updateImage(index, {
+                mediaCategory: nextCategory,
+                imageView: nextView,
+                isPrimary: false,
+                isPrimaryInterior: false,
+              });
+            }} className={inputClass}>
+              <option value="" disabled>Choose a category</option>
+              {VEHICLE_MEDIA_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          {category && (
+            <label className={`${labelClass} mt-3`}>Image view
+              <select value={views.includes(image.imageView as VehicleImageView) ? image.imageView : ""} onChange={(event) => updateImage(index, { imageView: event.target.value as VehicleImageView })} className={inputClass}>
+                <option value="" disabled>Choose a view</option>
+                {views.map((view) => <option key={view} value={view}>{view.replaceAll("-", " ")}</option>)}
+              </select>
+            </label>
+          )}
+          <label className={`${labelClass} mt-3`}>Generation
+            <select value={image.generationName ?? ""} onChange={(event) => updateImage(index, { generationName: event.target.value || undefined, variantName: undefined })} className={inputClass}>
+              <option value="">Entire model</option>
+              {matchingGenerations.map((generation) => <option key={generation.id || generation.name} value={generation.name}>{generation.name}</option>)}
+            </select>
+          </label>
+          {matchingGeneration?.variants.length ? (
+            <label className={`${labelClass} mt-3`}>Variant
+              <select value={image.variantName ?? ""} onChange={(event) => updateImage(index, { variantName: event.target.value || undefined })} className={inputClass}>
+                <option value="">All variants</option>
+                {matchingGeneration.variants.map((variant) => <option key={variant.id || variant.name} value={variant.name}>{variant.name}</option>)}
+              </select>
+            </label>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <button type="button" onClick={() => onChange(images.map((item, i) => ({ ...item, isPrimary: i === index })))} className={`text-[8px] uppercase tracking-widest ${image.isPrimary ? "text-white" : "text-[#888] hover:text-white"}`}>{image.isPrimary ? "Primary image" : "Set primary"}</button>
+            {category === "exterior" && <button type="button" onClick={() => setPrimary(index, category)} className={`text-[8px] uppercase tracking-widest ${image.isPrimary ? "text-white" : "text-[#888] hover:text-white"}`}>{image.isPrimary ? "Primary exterior" : "Set primary exterior"}</button>}
+            {category === "interior" && <button type="button" onClick={() => setPrimary(index, category)} className={`text-[8px] uppercase tracking-widest ${image.isPrimaryInterior ? "text-white" : "text-[#888] hover:text-white"}`}>{image.isPrimaryInterior ? "Primary interior" : "Set primary interior"}</button>}
             <div className="flex gap-1">
               <button type="button" onClick={() => move(index, -1)} aria-label="Move image up" className="h-7 w-7 border border-[#383838] text-xs">↑</button>
               <button type="button" onClick={() => move(index, 1)} aria-label="Move image down" className="h-7 w-7 border border-[#383838] text-xs">↓</button>
               <button type="button" onClick={() => {
                 const removedPrimary = images[index].isPrimary === true;
-                onChange(images.filter((_, i) => i !== index).map((item, sortOrder) => ({
+                const removedInteriorPrimary = images[index].isPrimaryInterior === true;
+                  const remaining = images.filter((_, i) => i !== index);
+                  const exteriorFallback = removedPrimary
+                    ? remaining.findIndex((item) => item.mediaCategory === "exterior")
+                    : -1;
+                  const interiorFallback = removedInteriorPrimary
+                    ? remaining.findIndex((item) => item.mediaCategory === "interior")
+                    : -1;
+                  onChange(remaining.map((item, sortOrder) => ({
                   ...item,
                   sortOrder,
-                  isPrimary: removedPrimary ? sortOrder === 0 : item.isPrimary,
-                })));
-              }} aria-label="Remove image" className="h-7 w-7 border border-[#493333] text-xs text-[#c99]">×</button>
+                  isPrimary: removedPrimary && item.mediaCategory === "exterior"
+                    ? sortOrder === exteriorFallback
+                    : item.isPrimary,
+                  isPrimaryInterior: removedInteriorPrimary && item.mediaCategory === "interior"
+                    ? sortOrder === interiorFallback
+                    : item.isPrimaryInterior,
+                  })));
+                }} aria-label="Remove image" className="h-7 w-7 border border-[#493333] text-xs text-[#c99]">×</button>
             </div>
           </div>
         </div>
-      ))}
+      );})}
       <label className="block text-[9px] uppercase tracking-widest text-[#888]">
         Rights / license
         <input value={license} onChange={(event) => setLicense(event.target.value)} placeholder="e.g. SHIFT-owned, CC BY 4.0" className={inputClass} />
@@ -816,9 +956,42 @@ function VehicleGallery({ images, onChange }: { images: CatalogImage[]; onChange
         <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-1 accent-white" />
         I confirm SHIFT is authorized to use these images.
       </label>
-      <label className="grid min-h-11 cursor-pointer place-items-center border border-dashed border-[#505050] text-[9px] uppercase tracking-widest text-[#ccc] hover:border-white">{busy ? "Uploading…" : "＋ Upload gallery photo"}
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" disabled={busy} onChange={(event) => void addFile(event)} className="sr-only" />
+      <label className="grid min-h-11 cursor-pointer place-items-center border border-dashed border-[#505050] text-[9px] uppercase tracking-widest text-[#ccc] hover:border-white">{busy ? uploadingFile : "＋ Upload gallery photos"}
+        <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif" disabled={busy} onChange={(event) => void addFile(event)} className="sr-only" />
       </label>
+      <label className={`${labelClass} mt-2`}>Default media category
+        <select value={uploadCategory} onChange={(event) => {
+          const nextCategory = event.target.value as VehicleMediaCategory | "";
+          setUploadCategory(nextCategory);
+          setUploadView(nextCategory ? VEHICLE_IMAGE_VIEWS_BY_CATEGORY[nextCategory][0] : "");
+        }} className={inputClass}>
+          <option value="">Choose a category</option>
+          {VEHICLE_MEDIA_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+        </select>
+      </label>
+      {uploadCategory && <label className={`${labelClass} mt-3`}>Default image view
+        <select value={uploadView} onChange={(event) => setUploadView(event.target.value as VehicleImageView)} className={inputClass}>
+          <option value="">Choose a view</option>
+          {VEHICLE_IMAGE_VIEWS_BY_CATEGORY[uploadCategory].map((view) => <option key={view} value={view}>{view.replaceAll("-", " ")}</option>)}
+        </select>
+      </label>}
+      <label className={`${labelClass} mt-3`}>Generation for new images
+        <select value={generationName} onChange={(event) => {
+          setGenerationName(event.target.value);
+          setVariantName("");
+        }} className={inputClass}>
+          <option value="">Entire model</option>
+          {generations.filter((generation) => generation.name).map((generation) => <option key={generation.id || generation.name} value={generation.name}>{generation.name}</option>)}
+        </select>
+      </label>
+      {generations.find((generation) => generation.name === generationName)?.variants.length ? (
+        <label className={`${labelClass} mt-3`}>Variant for new images
+          <select value={variantName} onChange={(event) => setVariantName(event.target.value)} className={inputClass}>
+            <option value="">All variants</option>
+            {generations.find((generation) => generation.name === generationName)?.variants.map((variant) => <option key={variant.id || variant.name} value={variant.name}>{variant.name}</option>)}
+          </select>
+        </label>
+      ) : null}
       <button type="button" onClick={() => void loadAssets()} className="min-h-10 w-full border border-[#383838] text-[9px] uppercase tracking-widest text-[#aaa] hover:border-white">Choose existing Cloudinary asset</button>
       {showAssets && (
         <div className="max-h-56 space-y-2 overflow-y-auto border border-[#333] p-2">
@@ -829,6 +1002,10 @@ function VehicleGallery({ images, onChange }: { images: CatalogImage[]; onChange
                 setError("Confirm rights and enter a license before using a saved image.");
                 return;
               }
+              if (!uploadCategory || !uploadView) {
+                setError("Choose the media category and image view before using a saved image.");
+                return;
+              }
               onChange([...images, {
                 mediaAssetId: asset.id,
                 publicId: asset.publicId,
@@ -837,7 +1014,14 @@ function VehicleGallery({ images, onChange }: { images: CatalogImage[]; onChange
                 caption: "",
                 license: license.trim(),
                 usage: "SHIFT catalogue display; rights declared by authorized administrator",
-                isPrimary: images.length === 0,
+                mediaCategory: uploadCategory,
+                imageView: uploadView,
+                generationName: generationName || undefined,
+                variantName: variantName || undefined,
+                isPrimary: uploadCategory === "exterior"
+                  && !images.some((item) => item.mediaCategory === "exterior" && item.isPrimary),
+                isPrimaryInterior: uploadCategory === "interior"
+                  && !images.some((item) => item.mediaCategory === "interior" && item.isPrimaryInterior),
                 sortOrder: images.length,
               }]);
               setShowAssets(false);

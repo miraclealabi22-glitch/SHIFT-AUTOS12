@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:media": "node --conditions=react-server --import tsx --test src/lib/cloudinary/config.test.ts src/server/services/media/media-permissions.test.ts src/server/services/media/media.service.test.ts",
-    "test:catalog": "node --conditions=react-server --import tsx --test src/server/services/catalog-import.test.ts src/server/services/catalog-query.test.ts src/server/services/catalog-publication.test.ts",
+    "test:catalog": "node --conditions=react-server --import tsx --test src/lib/catalog/catalog.test.ts src/server/services/catalog-import.test.ts src/server/services/catalog-query.test.ts src/server/services/catalog-publication.test.ts",
     "test:admin-catalog": "node --conditions=react-server --import tsx --test src/server/services/admin-catalog-api.test.ts src/lib/auth-navigation.test.ts",
     "catalog:import": "node --conditions=react-server --env-file-if-exists=.env.local --import tsx scripts/catalog-import.ts"
   },

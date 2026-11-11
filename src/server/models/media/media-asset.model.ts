@@ -52,5 +52,22 @@ mediaAssetSchema.index({ publicId: 1 }, { unique: true });
 mediaAssetSchema.index({ uploadedBy: 1, createdAt: -1 });
 mediaAssetSchema.index({ folder: 1, createdAt: -1 });
 
-export const MediaAssetModel = models.MediaAsset
+const existingMediaAssetModel = models.MediaAsset;
+if (existingMediaAssetModel) {
+  const folderPath = existingMediaAssetModel.schema.path("folder");
+  const configuredFolders = Object.values(MEDIA_FOLDERS);
+  if (folderPath instanceof Schema.Types.String) {
+    const existingFolders = folderPath.options.enum;
+    const folderEnumMatches = Array.isArray(existingFolders)
+      && existingFolders.length === configuredFolders.length
+      && configuredFolders.every((folder) => existingFolders.includes(folder));
+
+    if (!folderEnumMatches) {
+      folderPath.enum(false);
+      Reflect.apply(folderPath.enum, folderPath, configuredFolders);
+    }
+  }
+}
+
+export const MediaAssetModel = existingMediaAssetModel
   ?? model<MediaAssetDocument>("MediaAsset", mediaAssetSchema);

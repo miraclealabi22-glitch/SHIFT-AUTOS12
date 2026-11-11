@@ -35,6 +35,35 @@ export const catalogTypeDefs = /* GraphQL */ `
     UNVERIFIED
   }
 
+  enum VehicleMediaCategory {
+    EXTERIOR
+    INTERIOR
+    TECHNICAL
+    OTHER
+  }
+
+  enum VehicleImageView {
+    FRONT
+    REAR
+    SIDE
+    FRONT_THREE_QUARTER
+    REAR_THREE_QUARTER
+    WHEEL
+    BODY_DETAIL
+    DASHBOARD
+    COCKPIT
+    STEERING_WHEEL
+    FRONT_SEATS
+    REAR_SEATS
+    CENTRE_CONSOLE
+    DOOR_PANEL
+    INTERIOR_DETAIL
+    ENGINE
+    CHASSIS
+    MECHANICAL_DETAIL
+    OTHER
+  }
+
   enum ManufacturerSort {
     NAME_ASC
     OVERALL_RANK
@@ -51,6 +80,11 @@ export const catalogTypeDefs = /* GraphQL */ `
     license: String
     usage: String
     verificationStatus: VerificationStatus
+    mediaCategory: VehicleMediaCategory
+    imageView: VehicleImageView
+    generationName: String
+    variantName: String
+    isPrimaryInterior: Boolean
   }
 
   type CatalogDataSource {
@@ -173,6 +207,7 @@ export const catalogTypeDefs = /* GraphQL */ `
 
   input ManufacturerFilter {
     search: String
+    startsWith: String
     category: ManufacturerCategory
     countryOfOrigin: String
     status: ManufacturerStatus

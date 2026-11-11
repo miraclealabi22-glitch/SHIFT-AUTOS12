@@ -1,3 +1,5 @@
+import type { VehicleImageView, VehicleMediaCategory } from "@/lib/catalog/media-classification";
+
 export type ManufacturerCategory =
   | "hypercar"
   | "supercar"
@@ -21,6 +23,11 @@ export type MediaReference = {
   license?: string;
   usage?: string;
   verificationStatus?: "verified" | "pending" | "unverified";
+  mediaCategory?: VehicleMediaCategory;
+  imageView?: VehicleImageView;
+  generationName?: string;
+  variantName?: string;
+  isPrimaryInterior?: boolean;
 };
 
 export type CatalogSource = "shift" | "external-api" | "admin-curated" | "development-fixture";

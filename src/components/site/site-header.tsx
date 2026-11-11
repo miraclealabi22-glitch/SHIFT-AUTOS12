@@ -2,7 +2,7 @@ import Link from "next/link";
 import ShiftLogo from "@/components/brand/shift-logo";
 
 type SiteHeaderProps = {
-  active?: "discover" | "brands" | "journal";
+  active?: "discover" | "brands" | "journal" | "models";
   cinematic?: boolean;
 };
 
@@ -14,6 +14,7 @@ export default function SiteHeader({ active, cinematic = false }: SiteHeaderProp
       </Link>
       <nav className="site-nav" aria-label="Main navigation">
         <Link className="site-nav__brands" href="/login" aria-current={active === "discover" || active === "brands" ? "page" : undefined}>Discover</Link>
+        <Link className="site-nav__models" href="/discover/vehicles" aria-current={active === "models" ? "page" : undefined}>Models</Link>
         <Link className="site-nav__secondary" href="/login" aria-current={active === "journal" ? "page" : undefined}>Journal</Link>
         <Link className="site-nav__social" href="/login">Community</Link>
       </nav>

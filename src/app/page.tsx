@@ -3,14 +3,17 @@ import Link from "next/link";
 import SiteHeader from "@/components/site/site-header";
 import ShiftLogo from "@/components/brand/shift-logo";
 import CinematicHero from "@/components/site/cinematic-hero";
-import { getManufacturers, getVehicles } from "@/lib/catalog/catalog";
+import { getManufacturerDirectoryPage, getVehicles } from "@/lib/catalog/catalog";
 
 export const instant = false;
 
 export default async function Home() {
-  const [vehicles, manufacturers] = await Promise.all([getVehicles(), getManufacturers()]);
+  const [vehicles, manufacturers] = await Promise.all([
+    getVehicles(),
+    getManufacturerDirectoryPage({ first: 4, sort: "OVERALL_RANK" }),
+  ]);
   const featuredVehicles = vehicles.items.slice(0, 3);
-  const featuredManufacturers = manufacturers.items.slice(0, 4);
+  const featuredManufacturers = manufacturers.items;
 
   return (
     <>

@@ -1,6 +1,10 @@
 import "server-only";
 
 import { model, models, Schema, Types } from "mongoose";
+import {
+  VEHICLE_IMAGE_VIEWS,
+  VEHICLE_MEDIA_CATEGORIES,
+} from "@/lib/catalog/media-classification";
 
 export type VehicleDocument = {
   manufacturer: Types.ObjectId;
@@ -21,6 +25,11 @@ export type VehicleDocument = {
     license?: string;
     usage?: string;
     verificationStatus?: "verified" | "pending" | "unverified";
+    mediaCategory?: typeof VEHICLE_MEDIA_CATEGORIES[number];
+    imageView?: typeof VEHICLE_IMAGE_VIEWS[number];
+    generationName?: string;
+    variantName?: string;
+    isPrimaryInterior?: boolean;
   }[];
   category?: string;
   productionStartYear?: number;
@@ -62,6 +71,11 @@ const mediaSchema = new Schema({
   license: { type: String, trim: true, maxlength: 300 },
   usage: { type: String, trim: true, maxlength: 1000 },
   verificationStatus: { type: String, enum: ["verified", "pending", "unverified"] },
+  mediaCategory: { type: String, enum: VEHICLE_MEDIA_CATEGORIES },
+  imageView: { type: String, enum: VEHICLE_IMAGE_VIEWS },
+  generationName: { type: String, trim: true, maxlength: 160 },
+  variantName: { type: String, trim: true, maxlength: 160 },
+  isPrimaryInterior: { type: Boolean, default: false },
 }, { _id: false });
 
 const seoSchema = new Schema({

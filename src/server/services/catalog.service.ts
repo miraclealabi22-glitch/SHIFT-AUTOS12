@@ -35,6 +35,7 @@ const manufacturerSortValues = ["NAME_ASC", "OVERALL_RANK", "CATEGORY_RANK"] as 
 
 const manufacturerFilterSchema = z.object({
   search: z.string().trim().max(120).optional(),
+  startsWith: z.string().trim().toUpperCase().regex(/^[A-Z]$/).optional(),
   category: z.enum(categoryValues).optional(),
   countryOfOrigin: z.string().trim().min(1).max(100).optional(),
   status: z.enum(manufacturerStatusValues).optional(),
@@ -122,11 +123,16 @@ function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function manufacturerMatch(filter: z.infer<typeof manufacturerFilterSchema>) {
+export function buildManufacturerMatch(filter: z.infer<typeof manufacturerFilterSchema>) {
+  const searchPattern = filter.startsWith
+    ? `^${escapeRegex(filter.startsWith)}.*${escapeRegex(filter.search ?? "")}`
+    : filter.search
+      ? escapeRegex(filter.search)
+      : undefined;
   return {
     deletedAt: null,
     publicationStatus: "published",
-    ...(filter.search ? { name: { $regex: escapeRegex(filter.search), $options: "i" } } : {}),
+    ...(searchPattern ? { name: { $regex: searchPattern, $options: "i" } } : {}),
     ...(filter.category ? { categories: filter.category } : {}),
     ...(filter.countryOfOrigin ? { countryOfOrigin: filter.countryOfOrigin } : {}),
     ...(filter.status ? { status: filter.status } : {}),
@@ -230,7 +236,7 @@ function vehicleDto(record: Record<string, unknown>): Vehicle {
 export async function listManufacturers(input: unknown): Promise<Page<Manufacturer>> {
   const options = parseInput(manufacturerPageSchema, input);
   const filter = options.filter ?? {};
-  const match = manufacturerMatch(filter);
+  const match = buildManufacturerMatch(filter);
   const cursor = decodeCursor(options.after, manufacturerCursorSchema);
   const scope = cursorScope({
     sort: options.sort,

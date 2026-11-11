@@ -9,6 +9,12 @@ import { VehicleModel } from "@/server/models/catalog/vehicle.model";
 import { VehicleVariantModel } from "@/server/models/catalog/vehicle-variant.model";
 import { connectToDatabase } from "@/server/database/mongoose";
 import {
+  VEHICLE_IMAGE_VIEWS,
+  VEHICLE_MEDIA_CATEGORIES,
+  isVehicleImageViewForCategory,
+  normalizeMediaAssociationName,
+} from "@/lib/catalog/media-classification";
+import {
   assertManufacturerCanPublish,
   assertVehicleCanPublish,
 } from "@/server/services/catalog-publication";
@@ -30,8 +36,30 @@ const mediaInputSchema = z.object({
   license: z.string().trim().max(300).optional(),
   usage: z.string().trim().max(1000).optional(),
   isPrimary: z.boolean().optional(),
+  isPrimaryInterior: z.boolean().optional(),
+  mediaCategory: z.enum(VEHICLE_MEDIA_CATEGORIES).optional(),
+  imageView: z.enum(VEHICLE_IMAGE_VIEWS).optional(),
+  generationName: z.string().trim().max(160).optional(),
+  variantName: z.string().trim().max(160).optional(),
   sortOrder: z.number().int().min(0).optional(),
-}).strict();
+}).strict().superRefine((media, context) => {
+  if ((media.mediaCategory === undefined) !== (media.imageView === undefined)) {
+    context.addIssue({ code: "custom", message: "Media category and image view must be selected together." });
+    return;
+  }
+  if (media.mediaCategory && media.imageView && !isVehicleImageViewForCategory(media.mediaCategory, media.imageView)) {
+    context.addIssue({ code: "custom", message: "The image view is not valid for this media category." });
+  }
+  if (media.variantName && !media.generationName) {
+    context.addIssue({ code: "custom", message: "A variant image must also identify its generation." });
+  }
+  if (media.mediaCategory && media.mediaCategory !== "exterior" && media.isPrimary === true) {
+    context.addIssue({ code: "custom", message: "Only exterior images can be the primary vehicle image." });
+  }
+  if (media.mediaCategory && media.mediaCategory !== "interior" && media.isPrimaryInterior === true) {
+    context.addIssue({ code: "custom", message: "Only interior images can be the primary interior image." });
+  }
+});
 
 const seoSchema = z.object({
   title: z.string().trim().max(160).optional(),
@@ -108,6 +136,11 @@ type ResolvedMediaReference = {
   license?: string;
   usage?: string;
   verificationStatus: "verified" | "pending";
+  mediaCategory?: typeof VEHICLE_MEDIA_CATEGORIES[number];
+  imageView?: typeof VEHICLE_IMAGE_VIEWS[number];
+  generationName?: string;
+  variantName?: string;
+  isPrimaryInterior?: boolean;
 };
 
 function slugify(value: string) {
@@ -145,6 +178,11 @@ async function resolveMedia(
       license: input.license,
       usage: input.usage,
       verificationStatus: input.license ? "verified" as const : "pending" as const,
+      mediaCategory: input.mediaCategory,
+      imageView: input.imageView,
+      generationName: input.generationName,
+      variantName: input.variantName,
+      isPrimaryInterior: input.isPrimaryInterior ?? false,
     };
   }
   if (!input.url) throw new z.ZodError([]);
@@ -159,7 +197,79 @@ async function resolveMedia(
     license: input.license,
     usage: input.usage,
     verificationStatus: input.license ? "verified" as const : "pending" as const,
+    mediaCategory: input.mediaCategory,
+    imageView: input.imageView,
+    generationName: input.generationName,
+    variantName: input.variantName,
+    isPrimaryInterior: input.isPrimaryInterior ?? false,
   };
+}
+
+function assertUniqueVehicleMediaOwnership(
+  images: readonly ResolvedMediaReference[],
+): void {
+  const assetIds = images.flatMap((image) => image.mediaAssetId ? [image.mediaAssetId] : []);
+  if (new Set(assetIds).size !== assetIds.length) {
+    throw new Error("CATALOG_CONFLICT:Each uploaded image can only appear once in a vehicle gallery.");
+  }
+}
+
+async function assertVehicleMediaBelongsToOneVehicle(
+  images: readonly ResolvedMediaReference[],
+  vehicleId?: Types.ObjectId,
+): Promise<void> {
+  const assetIds = images.flatMap((image) => image.mediaAssetId ? [image.mediaAssetId] : []);
+  if (assetIds.length === 0) return;
+  const uniqueAssetIds = [...new Set(assetIds)];
+  const match = {
+    ...(vehicleId ? { _id: { $ne: vehicleId } } : {}),
+    "images.mediaAssetId": { $in: uniqueAssetIds },
+  };
+  if (await VehicleModel.exists(match)) {
+    throw new Error("CATALOG_CONFLICT:An uploaded image is already assigned to another vehicle.");
+  }
+}
+
+async function assertVehicleMediaAssociations(
+  images: readonly ResolvedMediaReference[],
+  vehicleId: Types.ObjectId | undefined,
+  generations?: readonly z.infer<typeof generationSchema>[],
+): Promise<void> {
+  const generationNames = generations
+    ? new Map(
+      generations.map((generation) => [
+        normalizeMediaAssociationName(generation.name),
+        new Set(generation.variants.map((variant) => normalizeMediaAssociationName(variant.name))),
+      ]),
+    )
+    : new Map<string, Set<string>>();
+  if (!generations && vehicleId) {
+    const records = await VehicleGenerationModel.find({ vehicle: vehicleId, deletedAt: null })
+      .select("_id normalizedName name")
+      .lean()
+      .exec();
+    const variants = records.length
+      ? await VehicleVariantModel.find({
+        generation: { $in: records.map((generation) => generation._id) },
+        deletedAt: null,
+      }).select("generation normalizedName name").lean().exec()
+      : [];
+    for (const generation of records) {
+      generationNames.set(
+        normalizeMediaAssociationName(generation.name),
+        new Set(variants
+          .filter((variant) => String(variant.generation) === String(generation._id))
+          .map((variant) => normalizeMediaAssociationName(variant.name))),
+      );
+    }
+  }
+  for (const image of images) {
+    if (!image.generationName) continue;
+    const variants = generationNames.get(normalizeMediaAssociationName(image.generationName));
+    if (!variants || (image.variantName && !variants.has(normalizeMediaAssociationName(image.variantName)))) {
+      throw new Error("CATALOG_CONFLICT:An image generation or variant does not belong to this vehicle.");
+    }
+  }
 }
 
 export async function listAdminManufacturers(input: {
@@ -329,6 +439,9 @@ export async function createAdminVehicle(manufacturerId: string, input: unknown)
   const data = parsed.data;
   const resolvedImages = await Promise.all((data.images ?? []).map((image) => resolveMedia(image, "vehicles")));
   const images = resolvedImages.filter((image): image is ResolvedMediaReference => Boolean(image));
+  assertUniqueVehicleMediaOwnership(images);
+  await assertVehicleMediaAssociations(images, undefined, data.generations ?? []);
+  await assertVehicleMediaBelongsToOneVehicle(images);
   const primaryCount = images.filter((image) => image?.isPrimary).length;
   const publicationStatus = data.publicationStatus ?? "incomplete";
   if (publicationStatus === "published") {
@@ -441,6 +554,13 @@ export async function updateAdminVehicle(vehicleId: string, input: unknown) {
   const images: ResolvedMediaReference[] = resolvedImages
     ? resolvedImages.filter((image): image is ResolvedMediaReference => Boolean(image))
     : existing.images as ResolvedMediaReference[];
+  if (resolvedImages || data.generations) {
+    assertUniqueVehicleMediaOwnership(images);
+    await assertVehicleMediaAssociations(images, new Types.ObjectId(vehicleId), data.generations);
+  }
+  if (resolvedImages) {
+    await assertVehicleMediaBelongsToOneVehicle(images, new Types.ObjectId(vehicleId));
+  }
   const manufacturer = await ManufacturerModel.findOne({
     _id: existing.manufacturer,
     deletedAt: null,

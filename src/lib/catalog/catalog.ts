@@ -13,6 +13,7 @@ import type {
   Manufacturer,
   Vehicle,
 } from "@/lib/catalog/types";
+import { normalizeManufacturer, normalizeVehicle } from "@/lib/catalog/normalize";
 
 type CatalogPageInput = {
   sort?: "NAME_ASC" | "OVERALL_RANK" | "CATEGORY_RANK";
@@ -33,6 +34,33 @@ type CatalogConnection<T> = {
     endCursor: string | null;
   };
   totalCount: number;
+};
+
+export type ManufacturerDirectoryPage = {
+  items: Manufacturer[];
+  pageInfo: CatalogConnection<Manufacturer>["pageInfo"];
+  totalCount: number;
+  available: boolean;
+};
+
+export type ManufacturerDirectoryInput = {
+  first?: number;
+  after?: string;
+  sort?: "NAME_ASC" | "OVERALL_RANK" | "CATEGORY_RANK";
+  rankingCategory?: string;
+  filter?: {
+    search?: string;
+    category?: string;
+    startsWith?: string;
+    countryOfOrigin?: string;
+    status?: "ACTIVE" | "DISCONTINUED";
+    featured?: boolean;
+  };
+};
+
+export type ManufacturerCategoryCounts = {
+  counts: Partial<Record<Manufacturer["categories"][number], number>>;
+  available: boolean;
 };
 
 async function getGraphQLEndpoint(): Promise<string> {
@@ -118,6 +146,68 @@ function logCatalogFailure(resource: string, error: unknown): void {
   }));
 }
 
+export async function getManufacturerDirectoryPage(
+  input: ManufacturerDirectoryInput,
+): Promise<ManufacturerDirectoryPage> {
+  const endpoint = await getGraphQLEndpoint();
+  try {
+    const data = await executeCatalogQuery<{ manufacturers: CatalogConnection<Manufacturer> }>(
+      endpoint,
+      manufacturersQuery,
+      { input },
+    );
+    return {
+      ...data.manufacturers,
+      items: data.manufacturers.nodes.map(normalizeManufacturer),
+      available: true,
+    };
+  } catch (error) {
+    logCatalogFailure("manufacturers", error);
+    return {
+      items: [],
+      pageInfo: { hasNextPage: false, endCursor: null },
+      totalCount: 0,
+      available: false,
+    };
+  }
+}
+
+export async function getManufacturerCategoryCounts(): Promise<ManufacturerCategoryCounts> {
+  const endpoint = await getGraphQLEndpoint();
+  const categories: Manufacturer["categories"][number][] = [
+    "hypercar",
+    "supercar",
+    "luxury",
+    "sports",
+    "electric",
+    "mainstream",
+    "performance-tuner",
+    "coachbuilder",
+    "historic-discontinued",
+  ];
+
+  try {
+    const entries = await Promise.all(categories.map(async (category) => {
+      const data = await executeCatalogQuery<{ manufacturers: CatalogConnection<Manufacturer> }>(
+        endpoint,
+        manufacturersQuery,
+        {
+          input: {
+            first: 1,
+            sort: "NAME_ASC",
+            filter: { category: category.toUpperCase().replaceAll("-", "_") },
+          },
+        },
+      );
+      return [category, data.manufacturers.totalCount] as const;
+    }));
+    return { counts: Object.fromEntries(entries), available: true };
+  } catch (error) {
+    logCatalogFailure("manufacturer_category_counts", error);
+    return { counts: {}, available: false };
+  }
+}
+
 export async function getManufacturers(): Promise<CatalogResult<Manufacturer>> {
   const endpoint = await getGraphQLEndpoint();
   try {
@@ -127,7 +217,7 @@ export async function getManufacturers(): Promise<CatalogResult<Manufacturer>> {
       "manufacturers",
       { sort: "NAME_ASC" },
     );
-    return { items, source: "backend", available: true };
+    return { items: items.map(normalizeManufacturer), source: "backend", available: true };
   } catch (error) {
     logCatalogFailure("manufacturers", error);
     return { items: [], source: "backend", available: false };
@@ -142,7 +232,7 @@ export async function getManufacturer(slug: string): Promise<Manufacturer | unde
       manufacturerBySlugQuery,
       { slug },
     );
-    return data.manufacturer ?? undefined;
+    return data.manufacturer ? normalizeManufacturer(data.manufacturer) : undefined;
   } catch (error) {
     logCatalogFailure("manufacturer", error);
     return undefined;
@@ -160,7 +250,7 @@ export async function getVehiclesForManufacturer(
       "vehicles",
       { filter: { manufacturerSlug } },
     );
-    return { items, source: "backend", available: true };
+    return { items: items.map(normalizeVehicle), source: "backend", available: true };
   } catch (error) {
     logCatalogFailure("manufacturer_vehicles", error);
     return { items: [], source: "backend", available: false };
@@ -171,7 +261,7 @@ export async function getVehicles(): Promise<CatalogResult<Vehicle>> {
   const endpoint = await getGraphQLEndpoint();
   try {
     const items = await getAllPages<Vehicle>(endpoint, vehiclesQuery, "vehicles", {});
-    return { items, source: "backend", available: true };
+    return { items: items.map(normalizeVehicle), source: "backend", available: true };
   } catch (error) {
     logCatalogFailure("vehicles", error);
     return { items: [], source: "backend", available: false };
@@ -186,7 +276,7 @@ export async function getVehicle(slug: string): Promise<Vehicle | undefined> {
       vehicleBySlugQuery,
       { slug },
     );
-    return data.vehicle ?? undefined;
+    return data.vehicle ? normalizeVehicle(data.vehicle) : undefined;
   } catch (error) {
     logCatalogFailure("vehicle", error);
     return undefined;

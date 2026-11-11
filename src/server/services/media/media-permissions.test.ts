@@ -22,13 +22,13 @@ test("regular users cannot upload platform assets", () => {
 });
 
 test("administrators can upload only to configured platform folders", () => {
-  assert.equal(resolveAdministratorUploadFolder(admin, "landingHero"), "shift/landing/hero");
-  assert.equal(resolveAdministratorUploadFolder(admin, "landingHeroFrames"), "shift/landing/hero-frames");
-  assert.equal(resolveAdministratorUploadFolder(admin, "authenticationLogin"), "shift/authentication/login");
-  assert.equal(resolveAdministratorUploadFolder(admin, "authenticationSignup"), "shift/authentication/signup");
-  assert.equal(resolveAdministratorUploadFolder(admin, "manufacturers"), "shift/manufacturers");
-  assert.equal(resolveAdministratorUploadFolder(admin, "vehicles"), "shift/vehicles");
-  assert.equal(resolveAdministratorUploadFolder(admin, "editorial"), "shift/editorial");
+  assert.equal(resolveAdministratorUploadFolder(admin, "landingHero"), "SHIFT/landing/hero");
+  assert.equal(resolveAdministratorUploadFolder(admin, "landingHeroFrames"), "SHIFT/landing/hero-frames");
+  assert.equal(resolveAdministratorUploadFolder(admin, "authenticationLogin"), "SHIFT/authentication/login");
+  assert.equal(resolveAdministratorUploadFolder(admin, "authenticationSignup"), "SHIFT/authentication/signup");
+  assert.equal(resolveAdministratorUploadFolder(admin, "manufacturers"), "SHIFT/manufacturers");
+  assert.equal(resolveAdministratorUploadFolder(admin, "vehicles"), "SHIFT/vehicles");
+  assert.equal(resolveAdministratorUploadFolder(admin, "editorial"), "SHIFT/editorial");
 });
 
 test("arbitrary folders are rejected even for administrators", () => {

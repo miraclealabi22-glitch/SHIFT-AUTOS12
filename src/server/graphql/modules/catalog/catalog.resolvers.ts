@@ -1,5 +1,9 @@
 import type { ManufacturerCategory } from "@/lib/catalog/types";
 import {
+  VEHICLE_IMAGE_VIEWS,
+  VEHICLE_MEDIA_CATEGORIES,
+} from "@/lib/catalog/media-classification";
+import {
   getManufacturerBySlug,
   listGenerationVariants,
   listVehicleGenerations,
@@ -44,12 +48,21 @@ const verificationStatusEnumValues = {
   UNVERIFIED: "unverified",
 };
 
+function enumResolverValues<T extends readonly string[]>(values: T): Record<string, T[number]> {
+  return Object.fromEntries(values.map((value) => [
+    value.toUpperCase().replaceAll("-", "_"),
+    value,
+  ]));
+}
+
 export const catalogResolvers = {
   ManufacturerCategory: categoryEnumValues,
   ManufacturerStatus: manufacturerStatusEnumValues,
   VehicleStatus: vehicleStatusEnumValues,
   CatalogSource: catalogSourceEnumValues,
   VerificationStatus: verificationStatusEnumValues,
+  VehicleMediaCategory: enumResolverValues(VEHICLE_MEDIA_CATEGORIES),
+  VehicleImageView: enumResolverValues(VEHICLE_IMAGE_VIEWS),
   Manufacturer: {
     categoryRanks: (manufacturer: {
       categoryRanks?: Partial<Record<ManufacturerCategory, number>>;

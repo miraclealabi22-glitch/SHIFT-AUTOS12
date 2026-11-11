@@ -1,11 +1,11 @@
 export const MEDIA_FOLDERS = {
-  landingHero: "shift/landing/hero",
-  landingHeroFrames: "shift/landing/hero-frames",
-  authenticationLogin: "shift/authentication/login",
-  authenticationSignup: "shift/authentication/signup",
-  manufacturers: "shift/manufacturers",
-  vehicles: "shift/vehicles",
-  editorial: "shift/editorial",
+  landingHero: "SHIFT/landing/hero",
+  landingHeroFrames: "SHIFT/landing/hero-frames",
+  authenticationLogin: "SHIFT/authentication/login",
+  authenticationSignup: "SHIFT/authentication/signup",
+  manufacturers: "SHIFT/manufacturers",
+  vehicles: "SHIFT/vehicles",
+  editorial: "SHIFT/editorial",
 } as const;
 
 export type MediaCategory = keyof typeof MEDIA_FOLDERS;
